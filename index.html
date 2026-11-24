@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><title>家庭股票籌碼追蹤</title>
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--tx:#1f2328;--sub:#6b7078;--ln:#e6e2d8;--up:#d63a2f;--dn:#14944a;--ac:#2b4a7a;--chip:#ebe7dc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--card:#1f2226;--tx:#ececec;--sub:#9aa0a8;--ln:#30343a;--up:#ff6b5e;--dn:#3ecf7b;--ac:#8fb3ec;--chip:#2a2e34}}
+:root[data-theme="dark"]{--bg:#15171a;--card:#1f2226;--tx:#ececec;--sub:#9aa0a8;--ln:#30343a;--up:#ff6b5e;--dn:#3ecf7b;--ac:#8fb3ec;--chip:#2a2e34}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0 auto;background:var(--bg);color:var(--tx);font:15px/1.45 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;max-width:640px;padding:0 12px 28px}
+h1{font-size:20px;margin:16px 2px 2px}.sub{color:var(--sub);font-size:12px}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding:8px 0;z-index:5}
+input{width:100%;padding:10px 12px;border:1px solid var(--ln);border-radius:10px;background:var(--card);color:var(--tx);font-size:15px}
+.chips{display:flex;gap:6px;margin-top:8px;overflow-x:auto}
+.chips button{flex:none;border:0;background:var(--chip);color:var(--tx);padding:6px 12px;border-radius:99px;font-size:13px}
+.chips button.on{background:var(--ac);color:var(--bg)}
+.card,.sec{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:12px;margin-bottom:10px}
+.card{cursor:pointer}.top{display:flex;justify-content:space-between}.nm{font-weight:700;font-size:16px}.cd{color:var(--sub);font-size:12px;margin-left:6px}
+.px{text-align:right}.px b{font-size:20px}.up{color:var(--up)}.dn{color:var(--dn)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;background:var(--chip);margin-top:4px}
+.fl{display:flex;gap:6px;margin-top:10px}.fl div{flex:1;background:var(--bg);border-radius:10px;padding:6px;text-align:center;font-size:11px;color:var(--sub)}.fl b{display:block;font-size:14px}
+.back{border:0;background:none;color:var(--ac);font-size:15px;padding:12px 0}
+.sec h3{margin:0 0 6px;font-size:14px;color:var(--ac)}.sec p{margin:0;padding:6px 0;border-top:1px solid var(--ln);display:flex;justify-content:space-between;gap:12px;font-size:14px}.sec p span{color:var(--sub);font-size:13px}.sec p b{text-align:right;font-weight:600}
+.hd{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;font-size:12px;color:var(--sub)}.hd i{font-style:normal;background:var(--chip);padding:3px 8px;border-radius:8px}
+.hint{text-align:center;color:var(--sub);font-size:11px;margin-top:16px}
+</style></head><body>
+<div id="app"></div>
+<script>
+fetch('data.json?'+Date.now()).then(r=>r.json()).then(DB=>{const L=DB.L,S=DB.S;
+const f=(x,d=2)=>typeof x!=='number'?(x==null||x===''?'—':x):x.toLocaleString('zh-TW',{maximumFractionDigits:d});
+const sg=x=>typeof x!=='number'?'—':(x>0?'+':'')+f(x,0);
+const pc=x=>typeof x!=='number'?'—':f(x*100)+'%';
+const cl=x=>x>0?'up':x<0?'dn':'';
+const num=x=>typeof x==='number';
+function calc(r){const o=r.slice();
+ o[10]=num(o[7])&&o[7]>0&&num(o[9])?o[9]/o[7]:null;
+ o[14]=[11,12,13].some(i=>num(o[i]))?[11,12,13].reduce((a,i)=>a+(num(o[i])?o[i]:0),0):null;
+ o[20]=num(o[3])&&num(o[16])&&o[16]>0?(o[3]-o[16])/o[16]:null;
+ o[24]=num(o[3])&&num(o[22])&&o[22]>0?(o[3]-o[22])/o[22]:null;return o}
+S.forEach(s=>{s.r=s.r.map(calc);const a=s.r[s.r.length-1],b=s.r[s.r.length-2]||a;s.p=a[3];s.chg=a[3]-b[3];s.pct=b[3]?s.chg/b[3]:0;s.tot=a[14];s.tr=a[25];s.f=a[11];s.t=a[12];s.s=a[13]});
+let k='all',kw='',sel=null;
+const SEC=[['一、基本資訊與現價',[[0,'d'],[1],[2],[3,'p']]],['二、融資融券與斷頭風險指標',[[4,'p'],[5,'%'],[6,'%'],[7,'n'],[8,'g'],[9,'n'],[10,'%']]],['三、三大法人成本與買賣超張數',[[11,'g'],[12,'g'],[13,'g'],[14,'g'],[15,'p'],[16,'p']]],['四、借券放空力道與大戶籌碼',[[17,'n'],[18,'n'],[19,'%'],[20,'%b']]],['五、均線位階、量能與盤後筆記',[[21,'p'],[22,'p'],[23,'p'],[24,'%b'],[25],[26,'n'],[27,'note']]]];
+function fm(v,t){if(t==='%'||t==='%b')return pc(v);if(t==='g')return sg(v);if(t==='n')return f(v,0);if(t==='p')return f(v);if(t==='note')return v?v:'尚無筆記';return v==null||v===''?'—':v}
+function cs(v,t){return (t==='g'||t==='%b')&&num(v)?cl(v):''}
+function list(){const q=kw;const A=S.filter(s=>(s.c+s.n).toLowerCase().includes(q)&&({all:1,up:s.chg>0,dn:s.chg<0,buy:s.tot>0,sell:s.tot<0,bull:s.r[s.r.length-1][3]>s.r[s.r.length-1][22]})[k]);
+return `<h1>📈 家庭股票籌碼追蹤</h1><div class="sub">資料日期：${S[0].r[S[0].r.length-1][0]}　共 ${S.length} 檔</div>
+<div class="bar"><input id="q" value="${kw}" placeholder="搜尋股票代號或名稱"><div class="chips">${[['all','全部'],['up','上漲'],['down','下跌'],['buy','法人買超'],['sell','法人賣超'],['bull','站上月線']].map(x=>`<button class="${k===(x[0]==='down'?'dn':x[0])?'on':''}" data-k="${x[0]==='down'?'dn':x[0]}">${x[1]}</button>`).join('')}</div></div><div id="ls">${A.map(s=>`<div class="card" data-c="${s.c}"><div class="top"><div><span class="nm">${s.n}</span><span class="cd">${s.c}</span><br><span class="tag">${s.tr||'—'}</span></div><div class="px"><b class="${cl(s.chg)}">${f(s.p)}</b><br><span class="${cl(s.chg)}">${s.chg>0?'▲':s.chg<0?'▼':''}${f(Math.abs(s.chg))}（${f(s.pct*100)}%）</span></div></div><div class="fl"><div>外資<b class="${cl(s.f)}">${sg(s.f)}</b></div><div>投信<b class="${cl(s.t)}">${sg(s.t)}</b></div><div>自營<b class="${cl(s.s)}">${sg(s.s)}</b></div><div>三大合計<b class="${cl(s.tot)}">${sg(s.tot)}</b></div></div></div>`).join('')||'<div class="hint">找不到符合的股票</div>'}</div><div class="hint">每個交易日收盤後自動更新，非盤中即時報價。點卡片看完整五大項目與歷史紀錄。<br>紅漲綠跌（台股習慣）。</div>`}
+function detail(s){const i=sel.i<0?s.r.length-1:sel.i,r=s.r[i],h=s.h;
+const hs=[['持有均價',h[0]],['持有張數',h[1]],['防守停損線',h[2]],['第一波目標價',h[3]]].filter(x=>num(x[1])&&x[1]>0);
+return `<button class="back" data-back="1">← 返回總表</button><h1>${s.n} <span class="cd">${s.c}</span></h1>${hs.length?`<div class="hd">${hs.map(x=>`<i>${x[0]} ${f(x[1])}</i>`).join('')}</div>`:''}
+<div class="bar"><div class="chips">${s.r.map((x,j)=>`<button class="${j===i?'on':''}" data-i="${j}">${x[0].slice(5).replace('-','/')}</button>`).join('')}</div></div>
+${SEC.map(sc=>`<div class="sec"><h3>${sc[0]}</h3>${sc[1].map(c=>`<p><span>${L[c[0]]}</span><b class="${cs(r[c[0]],c[1])}">${fm(r[c[0]],c[1])}</b></p>`).join('')}</div>`).join('')}<div class="hint">點上方日期可切換不同交易日的紀錄</div>`}
+function render(){const s=sel&&S.find(x=>x.c===sel.c);document.getElementById('app').innerHTML=s?detail(s):list();window.scrollTo(0,0)}
+function go(){const m=location.hash.match(/^#s(\d+[A-Za-z]*)$/);sel=m?{c:m[1],i:-1}:null;render()}
+document.getElementById('app').onclick=e=>{const t=e.target,c=t.closest('.card'),b=t.closest('button');
+ if(c){location.hash='s'+c.dataset.c}
+ else if(b&&b.dataset.back){location.hash=''}
+ else if(b&&b.dataset.i!=null){sel.i=+b.dataset.i;const y=scrollY;render();scrollTo(0,y)}
+ else if(b&&b.dataset.k){k=b.dataset.k;const y=scrollY;render();scrollTo(0,y)}};
+document.getElementById('app').oninput=e=>{if(e.target.id==='q'){kw=e.target.value.trim().toLowerCase();const p=e.target.selectionStart;render();const q=document.getElementById('q');q.focus();q.setSelectionRange(p,p)}};
+addEventListener('hashchange',go);go();}).catch(e=>{document.getElementById('app').textContent='資料載入失敗：'+e});
+</script></body></html>
