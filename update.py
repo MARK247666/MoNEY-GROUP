@@ -1,7 +1,7 @@
 """每日收盤後抓 證交所(上市)+櫃買中心(上櫃) 收盤價與成交量，更新 data.json。
 重點：一定要先確認「資料真正的交易日」，確認不了就不寫入，避免把前一天的價格寫成今天。"""
 import json, sys, os, csv, io, re, time, datetime, urllib.request, urllib.parse
-SHEET_ID = "1RIUH_M5YA7gcukuH1lPuxNG_jc5LJgnwpn0wcLuw5dA"  # 你的 Google 試算表
+SHEET_ID = "144tVJthzufeZ_SLf4jx3M3iZGxOqyaHmKvET1Ksa2rU"  # 你的 Google 試算表
 FMTQIK = "https://www.twse.com.tw/rwd/en/afterTrading/FMTQIK?response=json"  # 取得最新交易日
 TWSE = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TPEX = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
