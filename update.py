@@ -89,17 +89,18 @@ def trend(r):
 
 def main():
     data = json.load(open("data.json", encoding="utf-8"))
-    date = latest_trading_date()
-    q = {}
+    q, fallback = {}, None
     for name, url in (("上市", TWSE), ("上櫃", TPEX)):
         mq, md = fetch_market(name, url)
-        date = date or md
-        if not date: continue
-        if md and md != date:
-            print(f"[略過] {name} 資料日期 {md} 與最新交易日 {date} 不同"); continue
-        q.update(mq)
-    if not date: sys.exit("無法確認交易日，未更新任何資料")
-    print("最新交易日：", date)
+        if not md:
+            fallback = fallback or latest_trading_date()
+            md = fallback
+        if not md:
+            print(f"[略過] {name} 無法確認資料日期"); continue
+        print(f"{name} 資料日期：{md}")
+        for c, (cl, v) in mq.items(): q[c] = (cl, v, md)
+    if not q: sys.exit("無法取得任何報價，未更新")
+    date = max(v[2] for v in q.values())
     hit, miss, sheet_ok = 0, [], 0
     for s in data["S"]:
         try:
@@ -109,7 +110,7 @@ def main():
         except Exception as e:
             print(f"[警告] 讀取試算表分頁 {s['tab']} 失敗：{e}")
         if s["c"] not in q: miss.append(s["c"]); continue
-        close, vol = q[s["c"]]
+        close, vol, date = q[s["c"]]
         rows = s["r"]
         if rows[-1][0] > date: continue
         if rows[-1][0] != date:
