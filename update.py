@@ -68,7 +68,10 @@ def parse_csv(txt):
         d = sdate(line[0]) if line else None
         if not d: continue
         line = (line + [""] * 28)[:28]
-        rows.append([d] + [cell(c, i + 1) for i, c in enumerate(line[1:])])
+        row = [d] + [cell(c, i + 1) for i, c in enumerate(line[1:])]
+        for i in (5, 6):  # 維持率不可能是 0，試算表公式空白時會顯示 0，當成空白
+            if row[i] == 0: row[i] = None
+        rows.append(row)
     return rows
 
 def sheet_rows(tab):
@@ -108,9 +111,12 @@ def fetch_quotes(watch):
             if c in watch: q[c] = [cl, v, md]
     return q
 
-def main():
+def is_empty(r):
+    return not any(v is not None for i, v in enumerate(r) if i >= 3 and i not in (19, 25))
+
+def main(now=None):
     data = json.load(open("data.json", encoding="utf-8"))
-    now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    now = now or (datetime.datetime.utcnow() + datetime.timedelta(hours=8))
     if market_due(data, now):
         q = fetch_quotes({s["c"] for s in data["S"]})
         if q:
@@ -129,19 +135,25 @@ def main():
             else: print(f"[警告] {s['tab']} 讀不到資料列，沿用舊資料（請確認試算表已開「知道連結的人可檢視」）")
         except Exception as e:
             print(f"[警告] 讀取試算表分頁 {s['tab']} 失敗：{e}")
+        rows, today = s["r"], now.strftime("%Y-%m-%d")
+        rows[:] = [r for r in rows if not (r[0] < today and is_empty(r))]  # 休市日留下的空白列
+        if now.weekday() < 5 and now.hour >= 8 and rows[-1][0] < today:  # 先建立今天的空白列
+            t = [None] * 28
+            t[0], t[1], t[2], t[19] = today, s["c"], s["n"], rows[-1][19]
+            rows.append(t)
         if s["c"] not in q: miss.append(s["c"]); continue
-        close, vol, date = q[s["c"]]
-        rows = s["r"]
-        if rows[-1][0] > date: continue
-        if rows[-1][0] != date:
-            new = [None] * 28
-            new[0], new[1], new[2] = date, s["c"], s["n"]
-            rows.append(new)
-        r = rows[-1]
+        close, vol, d = q[s["c"]]
+        idx = next((i for i, r in enumerate(rows) if r[0] == d), None)
+        if idx is None:
+            t = [None] * 28
+            t[0], t[1], t[2] = d, s["c"], s["n"]
+            rows.append(t); rows.sort(key=lambda r: r[0])
+            idx = next(i for i, r in enumerate(rows) if r[0] == d)
+        r = rows[idx]
         if r[3] is None: r[3] = close
         if r[26] is None and vol: r[26] = round(vol / 1000)
-        if r[19] is None and len(rows) > 1: r[19] = rows[-2][19]
-        for i, v in ma(rows).items():
+        if r[19] is None and idx > 0: r[19] = rows[idx - 1][19]
+        for i, v in ma(rows[:idx + 1]).items():
             if r[i] is None: r[i] = v
         if not r[25]: r[25] = trend(r)
         hit += 1
