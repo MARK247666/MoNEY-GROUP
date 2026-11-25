@@ -161,26 +161,33 @@ DATASETS = {"上市": [("三大法人", ex_twse_3i), ("融資融券", ex_twse_ma
 
 def fetch_extras(data, q, watch):
     x, xd = data.setdefault("x", {}), data.setdefault("xd", {})
-    dates = {}
+    mk = {c: v[3] for c, v in q.items() if len(v) > 3}
+    latest = {}
     for c, v in q.items():
-        if len(v) > 3: dates.setdefault(v[3], v[2])
+        if len(v) > 3: latest[v[3]] = v[2]
+    recent = set()   # 試算表最近幾個「有收盤價」的交易日也一起補（例如昨天）
+    for s in data["S"]:
+        ds = [r[0] for r in s["r"] if isinstance(r[3], (int, float))]
+        recent.update(ds[-3:])
     for mkt, items in DATASETS.items():
-        d = dates.get(mkt)
-        if not d: continue
-        w = {c for c, v in q.items() if len(v) > 3 and v[3] == mkt}
-        for name, fn in items:
-            key = f"{mkt}:{name}"
-            if key in xd.get(d, []): continue
-            try:
-                time.sleep(1.5)
-                res = fn(d, w)
-            except Exception as e:
-                print(f"[警告] {key} 抓取失敗：{e}"); continue
-            if not res: print(f"{key} {d} 尚無資料（可能還沒公布），下一輪再試"); continue
-            for c, vals in res.items():
-                x.setdefault(d, {}).setdefault(c, {}).update({k: v for k, v in vals.items() if v is not None})
-            xd.setdefault(d, []).append(key)
-            print(f"{key} {d}：取得 {len(res)} 檔")
+        top = latest.get(mkt)
+        if not top: continue
+        w = {c for c, m in mk.items() if m == mkt}
+        for d in sorted({top} | {r for r in recent if r <= top}, reverse=True):
+            if datetime.date.fromisoformat(d).weekday() >= 5: continue
+            for name, fn in items:
+                key = f"{mkt}:{name}"
+                if key in xd.get(d, []): continue
+                try:
+                    time.sleep(1.5)
+                    res = fn(d, w)
+                except Exception as e:
+                    print(f"[警告] {key} {d} 抓取失敗：{e}"); continue
+                if not res: print(f"{key} {d} 尚無資料（可能還沒公布），下一輪再試"); continue
+                for c, vals in res.items():
+                    x.setdefault(d, {}).setdefault(c, {}).update({k: v for k, v in vals.items() if v is not None})
+                xd.setdefault(d, []).append(key)
+                print(f"{key} {d}：取得 {len(res)} 檔")
     for old in sorted(x)[:-10]: x.pop(old, None)
     for old in sorted(xd)[:-10]: xd.pop(old, None)
 
@@ -237,6 +244,35 @@ def ma_at(closes, d):
 
 def getj(url): return get(url)
 
+TWSE_DAILY = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?response=json&type=ALLBUT0999&date="
+TPEX_DAILY = "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?l=zh-tw&o=json&d="
+
+def daily_quotes(mkt, d):
+    """直接查「指定日期」的收盤行情（比開放資料 API 更早更新）。回傳 {代號:(收盤,股數)}，沒有就回 {}"""
+    try:
+        if mkt == "上市":
+            j = getj(TWSE_DAILY + d.replace("-", ""))
+            if not ok_date(j, d): return {}
+            for t in (j.get("tables") or []):
+                fl = t.get("fields") or []
+                a, b, c = (fidx(fl, lambda f, k=k: f.strip() == k) for k in ("證券代號", "成交股數", "收盤價"))
+                if None not in (a, b, c) and t.get("data"):
+                    print(f"{mkt} 指定日行情 {d}：{len(t['data'])} 筆")
+                    return {str(r[a]).strip(): (num(r[c]), num(r[b])) for r in t["data"] if num(r[c])}
+            return {}
+        j = getj(TPEX_DAILY + roc(d))
+        jd = pdate(j.get("date") or j.get("reportDate")) if isinstance(j, dict) else None
+        if jd and jd != d: return {}
+        fl, rows = table(j)
+        if not rows: return {}
+        a = fidx(fl, lambda f: "代號" in f or "代碼" in f); b = fidx(fl, lambda f: "成交股數" in f); c = fidx(fl, lambda f: f.strip() in ("收盤", "收盤價"))
+        a, b, c = (0 if a is None else a), (8 if b is None else b), (2 if c is None else c)
+        print(f"{mkt} 指定日行情 {d}：{len(rows)} 筆")
+        return {str(r[a]).strip(): (num(r[c]), num(r[b])) for r in rows if len(r) > max(a, b, c) and num(r[c])}
+    except Exception as e:
+        print(f"[警告] {mkt} 指定日行情失敗：{e}"); return {}
+
+
 def sdate(s):
     s = str(s).strip()
     m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})", s)
@@ -286,16 +322,24 @@ def market_due(data, now):
     except Exception: return True
     return (now - last).total_seconds() >= 28 * 60
 
-def fetch_quotes(watch):
+def fetch_quotes(watch, now=None):
     q, fallback = {}, None
+    today = now.strftime("%Y-%m-%d") if now else None
     for name, url in (("上市", TWSE), ("上櫃", TPEX)):
+        if today and now.weekday() < 5:           # 先查「今天」的行情
+            dq = daily_quotes(name, today)
+            hit = {c: v for c, v in dq.items() if c in watch}
+            if hit:
+                print(f"{name} 資料日期：{today}（指定日期查詢）")
+                for c, (cl, v) in hit.items(): q[c] = [cl, v, today, name]
+                continue
         mq, md = fetch_market(name, url)
         if not md:
             fallback = fallback or latest_trading_date()
             md = fallback
         if not md:
             print(f"[略過] {name} 無法確認資料日期"); continue
-        print(f"{name} 資料日期：{md}")
+        print(f"{name} 資料日期：{md}（開放資料）")
         for c, (cl, v) in mq.items():
             if c in watch: q[c] = [cl, v, md, name]
     return q
@@ -307,7 +351,7 @@ def main(now=None):
     data = json.load(open("data.json", encoding="utf-8"))
     now = now or (datetime.datetime.utcnow() + datetime.timedelta(hours=8))
     if market_due(data, now):
-        q = fetch_quotes({s["c"] for s in data["S"]})
+        q = fetch_quotes({s["c"] for s in data["S"]}, now)
         watch = {s["c"] for s in data["S"]}
         if q:
             data["q"], data["qt"] = q, now.replace(microsecond=0).isoformat()
