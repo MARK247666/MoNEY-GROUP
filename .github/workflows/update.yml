@@ -1,11 +1,13 @@
 name: update-stock-data
 on:
   schedule:
-    - cron: "0 7 * * 1-5"    # 台灣時間 15:00
-    - cron: "0 10 * * 1-5"   # 台灣時間 18:00（補抓）
+    - cron: "*/5 * * * *"   # 每 5 分鐘讀一次試算表（證交所資料由程式自行控制為 15:00 後每 30 分鐘）
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: update-stock-data
+  cancel-in-progress: false
 jobs:
   update:
     runs-on: ubuntu-latest
