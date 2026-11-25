@@ -1,6 +1,6 @@
 """每日收盤後抓 證交所(上市)+櫃買中心(上櫃) 收盤價與成交量，更新 data.json。
 重點：一定要先確認「資料真正的交易日」，確認不了就不寫入，避免把前一天的價格寫成今天。"""
-import json, sys, csv, io, re, urllib.request, urllib.parse
+import json, sys, os, csv, io, re, datetime, urllib.request, urllib.parse
 SHEET_ID = "1RIUH_M5YA7gcukuH1lPuxNG_jc5LJgnwpn0wcLuw5dA"  # 你的 Google 試算表
 FMTQIK = "https://www.twse.com.tw/rwd/en/afterTrading/FMTQIK?response=json"  # 取得最新交易日
 TWSE = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
@@ -87,8 +87,14 @@ def trend(r):
     if a > b > c: return "多頭排列(5>20>60)"
     return "站上月線轉強" if p > b else "跌破月線整理"
 
-def main():
-    data = json.load(open("data.json", encoding="utf-8"))
+def market_due(data, now):
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch": return True
+    if now.weekday() >= 5 or now.hour < 15: return False
+    try: last = datetime.datetime.fromisoformat(data.get("qt", ""))
+    except Exception: return True
+    return (now - last).total_seconds() >= 28 * 60
+
+def fetch_quotes(watch):
     q, fallback = {}, None
     for name, url in (("上市", TWSE), ("上櫃", TPEX)):
         mq, md = fetch_market(name, url)
@@ -98,9 +104,23 @@ def main():
         if not md:
             print(f"[略過] {name} 無法確認資料日期"); continue
         print(f"{name} 資料日期：{md}")
-        for c, (cl, v) in mq.items(): q[c] = (cl, v, md)
-    if not q: sys.exit("無法取得任何報價，未更新")
-    date = max(v[2] for v in q.values())
+        for c, (cl, v) in mq.items():
+            if c in watch: q[c] = [cl, v, md]
+    return q
+
+def main():
+    data = json.load(open("data.json", encoding="utf-8"))
+    now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    if market_due(data, now):
+        q = fetch_quotes({s["c"] for s in data["S"]})
+        if q:
+            data["q"], data["qt"] = q, now.replace(microsecond=0).isoformat()
+        else:
+            print("[警告] 這次沒抓到證交所/櫃買資料，沿用上一次的報價")
+    else:
+        print("本輪只讀試算表（證交所/櫃買資料每 30 分鐘、15:00 後才抓）")
+    q = data.get("q", {})
+    date = max((v[2] for v in q.values()), default=None)
     hit, miss, sheet_ok = 0, [], 0
     for s in data["S"]:
         try:
@@ -127,8 +147,8 @@ def main():
         hit += 1
     print(f"試算表讀取成功 {sheet_ok}/{len(data['S'])} 個分頁")
     print(f"交易日 {date}：更新 {hit} 檔；找不到：{miss}")
-    if hit == 0: sys.exit("沒有任何股票被更新")
-    data["updated"] = date
+    if sheet_ok == 0 and hit == 0: sys.exit("試算表與報價都沒有讀到資料")
+    if date: data["updated"] = date
     json.dump(data, open("data.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
 
 if __name__ == "__main__":
