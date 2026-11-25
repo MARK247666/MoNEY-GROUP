@@ -1,6 +1,7 @@
 """每日收盤後抓 證交所(上市)+櫃買中心(上櫃) 收盤價與成交量，更新 data.json。
 重點：一定要先確認「資料真正的交易日」，確認不了就不寫入，避免把前一天的價格寫成今天。"""
-import json, sys, urllib.request
+import json, sys, csv, io, re, urllib.request, urllib.parse
+SHEET_ID = "1RIUH_M5YA7gcukuH1lPuxNG_jc5LJgnwpn0wcLuw5dA"  # 你的 Google 試算表
 FMTQIK = "https://www.twse.com.tw/rwd/en/afterTrading/FMTQIK?response=json"  # 取得最新交易日
 TWSE = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TPEX = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
@@ -47,6 +48,34 @@ def fetch_market(name, url):
         if d: dates.add(d)
     return q, (max(dates) if dates else None)
 
+def sdate(s):
+    s = str(s).strip()
+    m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})", s)
+    if m: return f"{m[1]}-{int(m[2]):02d}-{int(m[3]):02d}"
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})", s)
+    if m: return f"{m[3]}-{int(m[1]):02d}-{int(m[2]):02d}"
+
+def cell(c, i):
+    c = c.strip()
+    if c == "": return None
+    if i in (1, 2, 25, 27): return c
+    if c.endswith("%") and num(c[:-1]) is not None: return num(c[:-1]) / 100
+    return num(c) if num(c) is not None else c
+
+def parse_csv(txt):
+    rows = []
+    for line in csv.reader(io.StringIO(txt)):
+        d = sdate(line[0]) if line else None
+        if not d: continue
+        line = (line + [""] * 28)[:28]
+        rows.append([d] + [cell(c, i + 1) for i, c in enumerate(line[1:])])
+    return rows
+
+def sheet_rows(tab):
+    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&headers=0&sheet=" + urllib.parse.quote(tab)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    return parse_csv(urllib.request.urlopen(req, timeout=40).read().decode("utf-8"))
+
 def ma(rows):
     cl = [r[3] for r in rows if isinstance(r[3], (int, float))]
     return {i: round(sum(cl[-n:]) / n, 2) for i, n in ((21, 5), (22, 20), (23, 60)) if len(cl) >= n}
@@ -71,8 +100,14 @@ def main():
         q.update(mq)
     if not date: sys.exit("無法確認交易日，未更新任何資料")
     print("最新交易日：", date)
-    hit, miss = 0, []
+    hit, miss, sheet_ok = 0, [], 0
     for s in data["S"]:
+        try:
+            sr = sheet_rows(s["tab"])
+            if sr: s["r"] = sr; sheet_ok += 1
+            else: print(f"[警告] {s['tab']} 讀不到資料列，沿用舊資料（請確認試算表已開「知道連結的人可檢視」）")
+        except Exception as e:
+            print(f"[警告] 讀取試算表分頁 {s['tab']} 失敗：{e}")
         if s["c"] not in q: miss.append(s["c"]); continue
         close, vol = q[s["c"]]
         rows = s["r"]
@@ -80,14 +115,16 @@ def main():
         if rows[-1][0] != date:
             new = [None] * 28
             new[0], new[1], new[2] = date, s["c"], s["n"]
-            new[19] = rows[-1][19]
             rows.append(new)
         r = rows[-1]
-        r[3] = close
-        if vol: r[26] = round(vol / 1000)
-        for i, v in ma(rows).items(): r[i] = v
-        r[25] = trend(r) or r[25]
+        if r[3] is None: r[3] = close
+        if r[26] is None and vol: r[26] = round(vol / 1000)
+        if r[19] is None and len(rows) > 1: r[19] = rows[-2][19]
+        for i, v in ma(rows).items():
+            if r[i] is None: r[i] = v
+        if not r[25]: r[25] = trend(r)
         hit += 1
+    print(f"試算表讀取成功 {sheet_ok}/{len(data['S'])} 個分頁")
     print(f"交易日 {date}：更新 {hit} 檔；找不到：{miss}")
     if hit == 0: sys.exit("沒有任何股票被更新")
     data["updated"] = date
